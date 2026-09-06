@@ -140,6 +140,7 @@ html {
 }
 
 html, body {
+  position: relative;
   min-height: 100vh;
   min-height: 100dvh;
   font-family: var(--font-body);
@@ -150,11 +151,16 @@ html, body {
     radial-gradient(circle at 85% 20%, color-mix(in srgb, var(--o-color) 12%, transparent), transparent 40%),
     radial-gradient(circle at 50% 85%, color-mix(in srgb, var(--accent-green) 8%, transparent), transparent 45%),
     var(--bg-gradient);
-  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   overflow-x: hidden;
+}
+
+@media (min-width: 769px) and (min-height: 500px) {
+  html, body {
+    background-attachment: fixed;
+  }
 }
 
 button, .sq, .ctl {
@@ -168,7 +174,7 @@ button, .sq, .ctl {
 /* Background Subtle Tech Grid */
 body::before {
   content: "";
-  position: fixed;
+  position: absolute;
   inset: 0;
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
@@ -1623,5 +1629,20 @@ footer {
 
   .sub-settings-bar .segmented-grp button.ctl.seg {
     flex: 1 1 auto;
+  }
+}
+
+/* Lighter backdrop-filter on mobile: blur is recomputed every scroll frame
+   against whatever's now behind the element, which is a heavy per-frame
+   cost on phone GPUs and was making scrolling feel laggy. */
+@media (max-width: 768px) {
+  .app-header,
+  .player-card,
+  .hud-center-pill,
+  .turn-banner,
+  .arena-card,
+  .modal-backdrop {
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
   }
 }
