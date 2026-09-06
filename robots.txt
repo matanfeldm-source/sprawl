@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://matanfeldm-source.github.io/sprawl/sitemap.xml
