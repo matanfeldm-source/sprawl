@@ -1616,4 +1616,14 @@ footer {
     padding: 16px 6px;
     min-height: 300px;
   }
+
+  .sub-settings-bar .segmented-grp {
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: 16px;
+  }
+
+  .sub-settings-bar .segmented-grp button.ctl.seg {
+    flex: 1 1 auto;
+  }
 }
