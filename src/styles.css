@@ -134,8 +134,14 @@
   padding: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 html, body {
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-body);
   color: var(--text-primary);
   background-color: var(--bg-base);
@@ -149,6 +155,16 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+
+button, .sq, .ctl {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.sq {
+  -webkit-touch-callout: none;
 }
 
 /* Background Subtle Tech Grid */
@@ -181,6 +197,9 @@ body::before {
   max-width: 1080px;
   margin: 0 auto;
   padding: 24px 20px 60px;
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: max(60px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -1547,5 +1566,54 @@ footer {
 
   .rules-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-header {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    gap: 10px;
+  }
+
+  .brand-badge {
+    display: none;
+  }
+
+  .brand-title-group h1 {
+    font-size: 20px;
+  }
+
+  .nav-actions {
+    margin-left: auto;
+    gap: 8px;
+  }
+
+  .btn-label-icon span:first-child {
+    display: none;
+  }
+
+  .btn-label-icon {
+    padding: 8px 12px;
+  }
+
+  .player-card {
+    padding: 12px 14px;
+    gap: 12px;
+  }
+
+  .player-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 19px;
+  }
+
+  .player-name {
+    font-size: 14px;
+  }
+
+  .board-viewport {
+    padding: 16px 6px;
+    min-height: 300px;
   }
 }
