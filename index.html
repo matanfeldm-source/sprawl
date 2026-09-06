@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Sprawl — Dynamic Expanding Tic-Tac-Toe</title>
+<meta name="description" content="A strategic two-player tic-tac-toe variant on a growing board. Place a mark, expand the edge, and be the first to align three in a row.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<canvas id="confettiCanvas"></canvas>
+
+<div class="app-container">
+
+  <!-- Main Navigation & Header -->
+  <header class="app-header">
+    <div class="brand-section">
+      <div class="brand-icon" aria-hidden="true">
+        <div class="brand-icon-inner">
+          <span></span>
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+      <div class="brand-title-group">
+        <h1>SPRAWL</h1>
+        <span class="brand-badge">Expanding Board Strategy</span>
+      </div>
+    </div>
+
+    <div class="nav-actions">
+      <button class="icon-btn" id="soundToggle" type="button" aria-label="Toggle Sound Effects" title="Toggle Sound">
+        <span id="soundIcon">🔊</span>
+      </button>
+      <button class="icon-btn" id="themeToggle" type="button" aria-label="Toggle Theme" title="Toggle Light/Dark Theme">
+        <span id="themeIcon">🌙</span>
+      </button>
+      <button class="btn-label-icon" id="rulesBtn" type="button" aria-label="View Game Rules">
+        <span>❓</span> How to Play
+      </button>
+    </div>
+  </header>
+
+  <!-- Player HUD / Scoreboard -->
+  <section class="hud-section" aria-label="Game Players and Scoreboard">
+    <!-- Player X Card -->
+    <div class="player-card x-card active-turn" id="playerCardX">
+      <div class="player-avatar-wrapper">
+        <div class="player-avatar" id="avatarX">✕</div>
+        <div class="player-turn-pulse"></div>
+      </div>
+      <div class="player-info">
+        <div class="player-header-row">
+          <span class="player-name" id="nameX">Player 1</span>
+          <span class="player-role-badge" id="roleX">First</span>
+        </div>
+        <div class="player-score-row">
+          <span class="player-score" id="scoreX">0</span>
+          <span class="score-caption">wins</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center Match Status Pill -->
+    <div class="hud-center-pill">
+      <span class="versus-tag">VS</span>
+      <span class="match-round-count" id="count">4 squares</span>
+    </div>
+
+    <!-- Player O Card -->
+    <div class="player-card o-card" id="playerCardO">
+      <div class="player-avatar-wrapper">
+        <div class="player-avatar" id="avatarO">○</div>
+        <div class="player-turn-pulse"></div>
+      </div>
+      <div class="player-info">
+        <div class="player-header-row">
+          <span class="player-name" id="nameO">Player 2</span>
+          <span class="player-role-badge" id="roleO">Second</span>
+        </div>
+        <div class="player-score-row">
+          <span class="player-score" id="scoreO">0</span>
+          <span class="score-caption">wins</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Current Turn Banner & Move Phase Stepper -->
+  <div class="turn-banner" role="status" aria-live="polite">
+    <div class="turn-status-left">
+      <div class="status-dot-indicator" id="dot"></div>
+      <div class="status-title-group">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          <span class="who-text" id="whoText">X to move</span>
+          <span class="last-move-badge" id="lastMoveBadge" hidden></span>
+        </div>
+        <span class="hint-text" id="hint">Tap an open square to place your mark</span>
+      </div>
+    </div>
+
+    <div class="phase-stepper" id="phaseStepper" aria-label="Turn Phase Progress">
+      <div class="step-chip active" id="step1">
+        <span class="step-num">1</span>
+        <span>Place Mark</span>
+      </div>
+      <span class="step-divider">➔</span>
+      <div class="step-chip" id="step2">
+        <span class="step-num">2</span>
+        <span>Expand Board</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Board Arena & Controls Container -->
+  <main class="arena-card">
+    <div class="board-viewport">
+      <div class="board" id="board" role="group" aria-label="Game board"></div>
+    </div>
+
+    <!-- Controls Section -->
+    <div class="controls-wrapper">
+      <!-- Primary Control Toolbar -->
+      <div class="primary-toolbar">
+        <!-- Opponent Mode Segmented Switcher -->
+        <div class="segmented-grp" role="group" aria-label="Opponent Mode" id="oppGrp">
+          <button class="ctl seg" data-opp="human" type="button" aria-pressed="true">2 Players</button>
+          <button class="ctl seg" data-opp="bot" type="button" aria-pressed="false">Vs Bot</button>
+          <button class="ctl seg" data-opp="online" type="button" aria-pressed="false">Online</button>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons-grp">
+          <button class="ctl primary-btn" id="reset" type="button" title="Start a fresh match">
+            <span>↺</span> New Game
+          </button>
+          <button class="ctl" id="undo" type="button" title="Undo the last turn">
+            <span>↶</span> Undo
+          </button>
+          <button class="ctl" id="threats" type="button" aria-pressed="false" title="Highlight winning and blocking threats">
+            <span>🎯</span> Threats
+          </button>
+          <button class="ctl" id="analyse" type="button" aria-pressed="false" title="Toggle AI search engine analysis">
+            <span>🧠</span> Analysis
+          </button>
+        </div>
+      </div>
+
+      <!-- Bot Difficulty & Play As Row -->
+      <div class="sub-settings-bar" id="diffRow" hidden>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span class="sub-label">Bot Level:</span>
+          <div class="segmented-grp" role="group" aria-label="Difficulty">
+            <button class="ctl seg" data-diff="easy" type="button" aria-pressed="false">Easy</button>
+            <button class="ctl seg" data-diff="medium" type="button" aria-pressed="false">Medium</button>
+            <button class="ctl seg" data-diff="hard" type="button" aria-pressed="true">Hard</button>
+            <button class="ctl seg" data-diff="master" type="button" aria-pressed="false">Master</button>
+            <button class="ctl seg" data-diff="grandmaster" type="button" aria-pressed="false">Grandmaster</button>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span class="sub-label">Play As:</span>
+          <div class="segmented-grp" role="group" aria-label="Play as">
+            <button class="ctl seg" data-color="X" type="button" aria-pressed="true">X (1st)</button>
+            <button class="ctl seg" data-color="O" type="button" aria-pressed="false">O (2nd)</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Online Multiplayer Lobby Row -->
+      <div class="sub-settings-bar" id="onlineRow" hidden>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <button class="ctl" id="findMatch" type="button">🌐 Quick Match</button>
+          <button class="ctl" id="hostLink" type="button">🔗 Create Invite Link</button>
+          <button class="ctl" id="cancelOnline" type="button" hidden>Cancel</button>
+        </div>
+        <p class="online-status" id="onlineStatus"></p>
+      </div>
+
+      <!-- AI Analysis Panel -->
+      <div id="panel" hidden>
+        <div class="evalrow">
+          <div class="evalnum" id="evalnum">0.00</div>
+          <div class="evalmeta">
+            <span id="evaldepth">depth 0</span> · 
+            <span id="evalnodes">0 nodes</span> · 
+            <span id="evalpersp">evaluating for X</span>
+          </div>
+        </div>
+
+        <div class="barwrap">
+          <span class="barlabel" id="barLabelMine">X</span>
+          <div class="bar"><div class="barfill" id="barfill"></div></div>
+          <span class="barlabel" id="barLabelTheirs">O</span>
+        </div>
+
+        <div class="bestline-card">
+          <p class="line" id="bestline">&nbsp;</p>
+          <p class="line pv" id="pvline">&nbsp;</p>
+        </div>
+
+        <ul class="alts" id="alts"></ul>
+        <ul class="log" id="log"></ul>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Sprawl — Dynamic Expanding Tic-Tac-Toe &bull; Built with HTML, CSS &amp; Web Workers
+  </footer>
+
+</div>
+
+<!-- How to Play Modal Dialog -->
+<div class="modal-backdrop" id="rulesModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h2 id="modalTitle">How to Play Sprawl</h2>
+      <button class="icon-btn" id="closeRulesBtn" type="button" aria-label="Close Rules Dialog">✕</button>
+    </div>
+
+    <div class="rules-grid">
+      <div class="rule-card">
+        <span class="rule-number">1</span>
+        <h3>Starting Grid</h3>
+        <p>The match begins with 4 empty squares arranged in a compact 2×2 block.</p>
+      </div>
+
+      <div class="rule-card">
+        <span class="rule-number">2</span>
+        <h3>Place Your Mark</h3>
+        <p>On your turn, place your mark (X or O) into any currently available empty square.</p>
+      </div>
+
+      <div class="rule-card">
+        <span class="rule-number">3</span>
+        <h3>Expand the Board</h3>
+        <p>Immediately grow the board by adding one new empty square edge-to-edge against any existing cell.</p>
+      </div>
+
+      <div class="rule-card">
+        <span class="rule-number">4</span>
+        <h3>Three in a Row</h3>
+        <p>Align 3 of your marks horizontally, vertically, or diagonally anywhere on the grid to win!</p>
+      </div>
+    </div>
+
+    <div class="rule-note">
+      <strong>The Mathematical Twist:</strong> Since each turn fills one square and adds another, there are <em>always exactly 4 empty squares</em> on the board at any moment. The board grows, but the choice remains razor-sharp!
+    </div>
+  </div>
+</div>
+
+<!-- Match Victory Modal Dialog -->
+<div class="modal-backdrop" id="victoryModal" role="dialog" aria-modal="true" aria-labelledby="victoryTitle">
+  <div class="modal-dialog victory-dialog">
+    <div class="victory-trophy" aria-hidden="true">🏆</div>
+    <h2 id="victoryTitle">Victory!</h2>
+    <p class="victory-subtitle" id="victorySubtitle">Player X connected 3 in a row!</p>
+    <div class="victory-actions">
+      <button class="ctl primary-btn" id="playAgainBtn" type="button">
+        <span>↺</span> Play Again
+      </button>
+      <button class="ctl" id="closeVictoryBtn" type="button">
+        Review Board
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Notification Element -->
+<div class="toast-container">
+  <div class="toast" id="appToast">Notification</div>
+</div>
+
+<script src="src/rules.js"></script>
+<script src="src/engine.js"></script>
+<script src="src/online.js"></script>
+<script src="src/ui.js"></script>
+</body>
+</html>

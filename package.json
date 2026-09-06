@@ -1,0 +1,14 @@
+{
+  "name": "sprawl",
+  "version": "0.3.0",
+  "description": "Tic-tac-toe on a board that grows by one square each turn, with a search engine and analysis panel.",
+  "private": true,
+  "scripts": {
+    "test": "node test/legal.test.js && node test/strength.test.js",
+    "legal": "node test/legal.test.js",
+    "strength": "node test/strength.test.js",
+    "probe": "node test/probe.js",
+    "serve": "python3 -m http.server 8000"
+  },
+  "license": "MIT"
+}
