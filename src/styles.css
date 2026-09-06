@@ -155,12 +155,10 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.5;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
 }
 
 button, .sq, .ctl {
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
 }
 
 .sq {
