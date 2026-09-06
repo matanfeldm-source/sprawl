@@ -485,24 +485,67 @@
     step();
   }
 
+  function botPlayTurn(placeKey, growKey){
+    reqSeq++;
+    history.push(clone(S));
+    var botTurn = S.turn;
+    pending = { mover: botTurn, place: placeKey };
+    S.cells[placeKey] = botTurn;
+    playPlaceSfx();
+
+    var w = lineAt(S.cells, placeKey, botTurn);
+    if (w) {
+      S.line = w;
+      S.over = true;
+      if (!hasAwardedWin) {
+        hasAwardedWin = true;
+        scores[botTurn] = (scores[botTurn] || 0) + 1;
+        playWinSfx();
+        triggerConfetti();
+        showVictoryModal(botTurn);
+      }
+      justAdded = null;
+      lastPlacedMark = { key: placeKey, turn: botTurn };
+      lastGrownSquare = null;
+      updateLastMoveBadge('Last move: <b>Bot (' + botTurn + ')</b> marked ' + sq(placeKey) + ' (Win!)');
+      needAna = true;
+      draw();
+      return;
+    }
+
+    // Complete bot turn seamlessly with board growth
+    var validGrow = (growKey && !(growKey in S.cells)) ? growKey : growCands(S.cells)[0];
+    pending.grow = validGrow;
+    lastPlayed = pending;
+    pending = null;
+
+    S.cells[validGrow] = null;
+    S.phase = 'place';
+    S.turn = other(botTurn);
+
+    setTimeout(playGrowSfx, 90);
+
+    justAdded = validGrow;
+    lastPlacedMark = { key: placeKey, turn: botTurn };
+    lastGrownSquare = validGrow;
+    updateLastMoveBadge('Last move: <b>Bot (' + botTurn + ')</b> marked ' + sq(placeKey) + ', grew ' + sq(validGrow));
+    needAna = true;
+    draw();
+  }
+
   function step(){
     if (!BOT_MODES[mode] || S.over || S.turn === humanColor) return;
     setTimeout(function(){
       if (!BOT_MODES[mode] || S.over || S.turn === humanColor) return;
-      if (S.phase === 'place') {
-        var seq = reqSeq, w = W[mode] || W.hard;
-        var doSearch = w.parallel ? searchParallel : searchAsync;
-        doSearch(S.cells, S.turn, w.ms, w.depth, w, function(r){
-          if (seq !== reqSeq || !BOT_MODES[mode] || S.over || S.turn === humanColor || S.phase !== 'place') return;
-          plan = r.best ? { place: r.best.p, grow: r.best.g } : { place: opens(S.cells)[0], grow: slots(S.cells)[0] };
-          place(plan.place);
-        });
-      } else {
-        var g = (plan && plan.grow && !(plan.grow in S.cells)) ? plan.grow : growCands(S.cells)[0];
-        plan = null;
-        grow(g);
-      }
-    }, 320);
+      var seq = reqSeq, w = W[mode] || W.hard;
+      var doSearch = w.parallel ? searchParallel : searchAsync;
+      doSearch(S.cells, S.turn, w.ms, w.depth, w, function(r){
+        if (seq !== reqSeq || !BOT_MODES[mode] || S.over || S.turn === humanColor || S.phase !== 'place') return;
+        var p = r.best ? r.best.p : opens(S.cells)[0];
+        var g = r.best ? r.best.g : slots(S.cells)[0];
+        botPlayTurn(p, g);
+      });
+    }, 280);
   }
 
   /* ---------- Board Rendering & UI Sync ---------- */
@@ -525,12 +568,12 @@
 
     var tx = showTh ? threatCells(S.cells, 'X') : [];
     var to = showTh ? threatCells(S.cells, 'O') : [];
-    var showSlots = !S.over && S.phase === 'grow';
-
     var human;
     if (mode === 'online') human = onlineConnected && S.turn === myColor;
     else if (BOT_MODES[mode]) human = S.turn === humanColor;
     else human = true;
+
+    var showSlots = !S.over && S.phase === 'grow' && human;
 
     for (var y = minY; y <= maxY; y++) {
       for (var x = minX; x <= maxX; x++) {
@@ -635,7 +678,7 @@
 
     /* Phase Stepper */
     if (step1 && step2) {
-      if (S.over) {
+      if (S.over || (BOT_MODES[mode] && S.turn !== humanColor)) {
         step1.classList.remove('active');
         step2.classList.remove('active');
       } else {
