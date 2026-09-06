@@ -1,8 +1,19 @@
-/* Sprawl online play: peer-to-peer over WebRTC via Trystero, using free
-   public WebTorrent trackers for discovery/signaling. No account, no
-   server for anyone to host — but it does depend on a third-party CDN
-   and public relay being reachable, and on browsers' WebRTC/NAT traversal
-   succeeding without a TURN server. Two flows share one connection layer:
+/* Sprawl online play: peer-to-peer over WebRTC via Trystero, using a free
+   Firebase Realtime Database for discovery/signaling. No app-level
+   account for players, no server for anyone to host — but it does
+   depend on a third-party CDN and Firebase being reachable, and on
+   browsers' WebRTC/NAT traversal succeeding without a TURN server.
+
+   The previous version used Trystero's BitTorrent-tracker and MQTT
+   strategies (public relays, zero setup). Both were tested directly
+   (two independent peers joining the same room) and confirmed broken —
+   peers never discovered each other, even after 40+ seconds, on two
+   different signaling backends. Public WebTorrent trackers and MQTT
+   brokers are not actually designed for arbitrary WebRTC signaling and
+   have become unreliable for it. Firebase's realtime strategy uses a
+   dedicated database instead and was verified working.
+
+   Two flows share one connection layer:
 
    - hostLink()/joinLink(code): a private room keyed by a random code,
      shared as a URL. Deterministic: host is always X.
@@ -42,18 +53,16 @@
   };
   window.SprawlOnline = api;
 
-  import('https://esm.sh/trystero@0.21.2/torrent').then(function (mod) {
+  /* ?bundle forces esm.sh to inline firebase/app + firebase/database as one
+     module graph. Without it, the two resolve to separate module instances
+     and Firebase's service registry silently breaks ("Service database is
+     not available") — confirmed by direct testing. */
+  import('https://esm.sh/trystero@0.21.2/firebase?bundle').then(function (mod) {
     var joinRoom = mod.joinRoom, selfId = mod.selfId;
-    var APP_ID = 'sprawl-ttt-v2';
-    /* Connect to several public trackers redundantly rather than trusting
-       Trystero's internal random pick of two — any single dead tracker
-       (they come and go) shouldn't be able to strand a rendezvous. */
-    var TRACKERS = [
-      'wss://tracker.openwebtorrent.com',
-      'wss://tracker.webtorrent.dev',
-      'wss://tracker.btorrent.xyz'
-    ];
-    var ROOM_CFG = { appId: APP_ID, trackerUrls: TRACKERS, trackerRedundancy: TRACKERS.length };
+    /* Trystero's firebase strategy takes the database URL as appId and
+       uses it purely for WebRTC signaling (peer presence under the
+       "__trystero__" path) — no game state is ever stored there. */
+    var ROOM_CFG = { appId: 'https://sprawl-online-default-rtdb.firebaseio.com' };
     var room = null, sendMv = null, lobby = null, paired = false, searchTimer = null;
 
     function leaveRoom() { if (room) { try { room.leave(); } catch (e) {} room = null; sendMv = null; } }
