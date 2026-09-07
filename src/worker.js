@@ -3,6 +3,6 @@ importScripts('rules.js', 'engine.js');
 var E = SprawlEngine;
 onmessage = function (ev) {
   var d = ev.data;
-  var r = E.search(d.cells, d.turn, d.ms, d.depth, d.w, d.part, d.parts);
+  var r = E.search(d.cells, d.turn, d.ms, d.depth, d.w, d.part, d.parts, d.mem);
   postMessage({ id: d.id, result: r });
 };

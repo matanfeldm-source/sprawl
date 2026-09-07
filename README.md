@@ -213,6 +213,43 @@ hot path in this file didn't survive contact with a real benchmark (the
 move-ordering sort was the second) — always run a comparison more than
 once before trusting it, a single run is not a measurement.
 
+### Self-learning from past games (opt-in, post-search only)
+
+Unlike the four attempts above, this one isn't a new search mechanism — it
+deliberately avoids being one. `search()` takes an optional 8th argument,
+`mem`: a position+move → `{w,l}` win/loss table. When present, it only
+changes the final step of move selection, *after* alpha-beta and iterative
+deepening are completely finished — the existing jitter-pool pick at the
+end of `search()` (all root moves within `jitter` points of the top score,
+previously chosen uniformly at random) becomes a pick weighted by each
+candidate's historical win rate instead. It cannot change which moves
+qualify for the pool (`top`/`jitter`/`WINV` are untouched), so a proven
+forced win or a forced block is never affected — verified by feeding an
+adversarial `mem` that tries to bias away from the correct block in the
+TT-bug reproduction position; the guard held across repeated runs. With
+`mem` absent or empty (the default), behavior is byte-identical to before —
+confirmed by `test/legal.test.js` and `test/strength.test.js` both matching
+their prior baselines unchanged.
+
+The engine itself has no persistence (it runs inside a Worker, no
+`localStorage`). `src/ui.js` owns the actual table (`sprawl_engine_memory`,
+capped at the 500 most recently-touched entries) and passes it into every
+bot search call; after each bot game ends, every move the bot made that
+game gets a win or loss tally added, based on whether the bot ultimately
+won. On this infinite/growing board positions diverge fast, so almost all
+entries that ever accumulate real data are from the first few plies of a
+game — which is exactly where this can matter, since those are the
+positions most likely to recur across different games.
+
+Also new alongside this: a chess.com-style ELO rating and a game history
+list, both `localStorage`-only (this device, no login, no server) and
+scoped to bot and online games only — a local two-player game has no
+distinct "you" vs. opponent, so there's nothing to rate. Bots are given
+fixed anchor ratings standing in for their strength (`BOT_ANCHOR` in
+`src/ui.js`); an online opponent's real rating can't be known on a
+backend-free site, so it's approximated as an even match against the
+player's own current rating.
+
 ## What the search says about the game
 
 Not solved, and not solvable by exhaustive search: with no full board the game

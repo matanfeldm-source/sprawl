@@ -4,6 +4,7 @@
   var DIRS = R.DIRS, WIN = E.WIN, W = E.WEIGHTS;
   var k = R.k, parse = R.parse, other = R.other, fresh = R.fresh, clone = R.clone;
   var slots = R.slots, opens = R.opens, lineAt = R.lineAt, threatCells = R.threatCells;
+  var legalPlacement = R.legalPlacement, legalGrowth = R.legalGrowth;
   var search = E.search, growCands = E.growCands, turnMoves = E.turnMoves, evalPos = E.evalPos, scan = E.scan;
   var BOT_MODES = { easy: 1, medium: 1, hard: 1, master: 1, grandmaster: 1 };
   var DIFF_LABEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard', master: 'Master', grandmaster: 'Grandmaster' };
@@ -15,10 +16,10 @@
     delete pendingReq[d.id];
     if (cb) cb(d.result);
   };
-  function searchAsync(cells, turn, ms, maxd, w, cb){
+  function searchAsync(cells, turn, ms, maxd, w, cb, mem){
     var id = ++reqId;
     pendingReq[id] = cb;
-    worker.postMessage({ id: id, cells: E.copyCells(cells), turn: turn, ms: ms, depth: maxd, w: w });
+    worker.postMessage({ id: id, cells: E.copyCells(cells), turn: turn, ms: ms, depth: maxd, w: w, mem: mem });
   }
 
   /* Grandmaster runs a genuine parallel search: a pool of workers, each a
@@ -45,7 +46,7 @@
     }
     return pool;
   }
-  function searchParallel(cells, turn, ms, maxd, w, cb){
+  function searchParallel(cells, turn, ms, maxd, w, cb, mem){
     var workers = ensurePool(), n = workers.length, results = new Array(n), remaining = n;
     for (var i = 0; i < n; i++) {
       (function(slot, idx){
@@ -55,7 +56,7 @@
           remaining--;
           if (remaining === 0) combine();
         };
-        slot.worker.postMessage({ id: id, cells: E.copyCells(cells), turn: turn, ms: ms, depth: maxd, w: w, part: idx, parts: n });
+        slot.worker.postMessage({ id: id, cells: E.copyCells(cells), turn: turn, ms: ms, depth: maxd, w: w, part: idx, parts: n, mem: mem });
       })(workers[i], i);
     }
     function combine(){
@@ -112,6 +113,21 @@
   var rulesBtn = document.getElementById('rulesBtn');
   var rulesModal = document.getElementById('rulesModal');
   var closeRulesBtn = document.getElementById('closeRulesBtn');
+  var ratingBadge = document.getElementById('ratingBadge');
+  var historyBtn = document.getElementById('historyBtn');
+  var historyModal = document.getElementById('historyModal');
+  var closeHistoryBtn = document.getElementById('closeHistoryBtn');
+  var historyList = document.getElementById('historyList');
+  var clearHistoryBtn = document.getElementById('clearHistoryBtn');
+  var primaryToolbar = document.getElementById('primaryToolbar');
+  var reviewRow = document.getElementById('reviewRow');
+  var reviewStartBtn = document.getElementById('reviewStart');
+  var reviewPrevBtn = document.getElementById('reviewPrev');
+  var reviewNextBtn = document.getElementById('reviewNext');
+  var reviewEndBtn = document.getElementById('reviewEnd');
+  var reviewExitBtn = document.getElementById('reviewExit');
+  var reviewStepLabel = document.getElementById('reviewStepLabel');
+  var reviewMoveList = document.getElementById('reviewMoveList');
   var victoryModal = document.getElementById('victoryModal');
   var victoryTitle = document.getElementById('victoryTitle');
   var victorySubtitle = document.getElementById('victorySubtitle');
@@ -143,6 +159,7 @@
   var hasAwardedWin = false;
 
   function perspective(){
+    if (reviewing && reviewGame) return reviewGame.myColor;
     if (BOT_MODES[mode]) return humanColor;
     if (mode === 'online' && myColor) return myColor;
     return 'X';
@@ -271,6 +288,319 @@
     };
   }
 
+  /* ---------- Rating, History & Engine Self-Learning (this device only) ----------
+     Everything here lives in localStorage, never leaves the browser, and only
+     covers bot and online games — a local hotseat game has no distinct "you"
+     vs. opponent, so there's nothing meaningful to rate or record for it. */
+  var RATING_DEFAULT = 1200, RATING_K = 32;
+  var BOT_ANCHOR = { easy: 700, medium: 950, hard: 1250, master: 1650, grandmaster: 2000 };
+  var rating = parseFloat(localStorage.getItem('sprawl_rating')) || RATING_DEFAULT;
+  var botMoveLog = [];
+  /* Every completed turn ({turn,place,grow}) of the current game, in
+     order — pushed alongside recordGameResult()'s other bookkeeping so a
+     finished bot/online game can be replayed later (see Part 2/3 review
+     mode). Same shape as test/harness.js's playGame().log. */
+  var moveLog = [];
+
+  /* ---------- Game Review (replay a saved game with analysis) ----------
+     Reuses the live board renderer (draw()) and Analysis panel
+     (runAnalysis()) against a reconstructed position instead of building
+     either a second time — see the "reviewing" checks threaded through
+     draw()/step()/perspective()/runAnalysis() above. */
+  var reviewing = false, reviewGame = null, reviewStep = 0;
+  var reviewEvalCache = {}, reviewEvalSeq = 0;
+
+  function loadJSON(key, fallback){
+    try {
+      var v = JSON.parse(localStorage.getItem(key));
+      return v && typeof v === 'object' ? v : fallback;
+    } catch (e) { return fallback; }
+  }
+  function saveJSON(key, val){
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+  }
+
+  function updateRatingBadge(){
+    if (ratingBadge) ratingBadge.textContent = '🏆 ' + Math.round(rating);
+    var el = document.getElementById('historyStatsRating');
+    if (el) el.textContent = Math.round(rating);
+  }
+  updateRatingBadge();
+
+  /* Position+move -> {w,l,t} outcome table, read by the engine (via the
+     worker) to weight its final move pick among already-equally-good
+     candidates — see the `mem` handling in src/engine.js's search(). The
+     engine has no localStorage access itself (it runs in a Worker), so
+     ui.js owns this table and passes the relevant slice into every bot
+     search call. Capped at the 500 most recently-touched entries: on this
+     infinite/growing board almost all reused positions are from the first
+     few plies of a game anyway, so a small cap is plenty. */
+  function loadEngineMemory(){ return loadJSON('sprawl_engine_memory', {}); }
+  function updateEngineMemory(botWon){
+    if (!botMoveLog.length) return;
+    var mem = loadEngineMemory();
+    for (var i = 0; i < botMoveLog.length; i++) {
+      var mk = botMoveLog[i].hash + '_' + botMoveLog[i].p + '_' + (botMoveLog[i].g || 'x');
+      var rec = mem[mk] || { w: 0, l: 0, t: 0 };
+      if (botWon) rec.w++; else rec.l++;
+      rec.t = Date.now();
+      mem[mk] = rec;
+    }
+    var keys = Object.keys(mem);
+    if (keys.length > 500) {
+      keys.sort(function(a, b){ return mem[a].t - mem[b].t; });
+      for (var j = 0; j < keys.length - 500; j++) delete mem[keys[j]];
+    }
+    saveJSON('sprawl_engine_memory', mem);
+  }
+
+  function renderHistory(){
+    if (!historyList) return;
+    var list = loadJSON('sprawl_history', []);
+    historyList.innerHTML = '';
+    for (var i = 0; i < list.length; i++) {
+      var g = list[i];
+      var canReview = !!(g.moves && g.moves.length);
+      var li = document.createElement('li');
+      li.className = 'history-item ' + (g.result === 'win' ? 'win' : 'loss') + (canReview ? ' reviewable' : '');
+      var d = new Date(g.ts);
+      li.innerHTML =
+        '<span class="history-result">' + (g.result === 'win' ? 'WIN' : 'LOSS') + '</span>' +
+        '<span class="history-opp">' + g.oppLabel + '</span>' +
+        '<span class="history-date">' + d.toLocaleDateString() + '</span>' +
+        '<span class="history-delta">' + (g.ratingDelta >= 0 ? '+' : '') + Math.round(g.ratingDelta) + '</span>';
+      if (canReview) {
+        li.title = 'Click to review this game';
+        li.onclick = (function(game){ return function(){ enterReview(game); }; })(g);
+      }
+      historyList.appendChild(li);
+    }
+  }
+
+  /* The only place a finished bot/online game's outcome gets turned into a
+     rating change, a history entry, and (bot games only) an engine-memory
+     update — called once per game from the two win-detection sites in
+     place() and botPlayTurn(). */
+  function recordGameResult(winnerColor){
+    var isBotGame = !!BOT_MODES[mode];
+    var isOnlineGame = mode === 'online';
+    if (!isBotGame && !isOnlineGame) { botMoveLog = []; moveLog = []; return; }
+
+    var myPerspectiveColor = isBotGame ? humanColor : myColor;
+    var myWin = winnerColor === myPerspectiveColor;
+    /* Bots get a fixed anchor rating standing in for their strength. An
+       online opponent's real rating can never be known on a backend-free,
+       login-free site, so it's approximated as an even match against the
+       player's own current rating — an explicit, documented shortcut, not
+       a claim of a real ranked ladder. */
+    var oppRating = isBotGame ? (BOT_ANCHOR[mode] || RATING_DEFAULT) : rating;
+    var oppLabel = isBotGame ? (DIFF_LABEL[mode] || mode) : 'Online';
+
+    var expected = 1 / (1 + Math.pow(10, (oppRating - rating) / 400));
+    var delta = RATING_K * ((myWin ? 1 : 0) - expected);
+    rating += delta;
+    localStorage.setItem('sprawl_rating', String(rating));
+    updateRatingBadge();
+
+    var hist = loadJSON('sprawl_history', []);
+    hist.unshift({ ts: Date.now(), mode: isBotGame ? 'bot' : 'online', oppLabel: oppLabel,
+      result: myWin ? 'win' : 'loss', myColor: myPerspectiveColor, ratingDelta: delta, ratingAfter: rating,
+      moves: moveLog.slice() });
+    if (hist.length > 200) hist.length = 200;
+    saveJSON('sprawl_history', hist);
+
+    if (isBotGame) updateEngineMemory(!myWin);
+    botMoveLog = [];
+  }
+
+  if (historyBtn) {
+    historyBtn.onclick = function(){
+      playBtnClick();
+      renderHistory();
+      if (historyModal) historyModal.classList.add('open');
+    };
+  }
+  if (closeHistoryBtn) {
+    closeHistoryBtn.onclick = function(){
+      playBtnClick();
+      if (historyModal) historyModal.classList.remove('open');
+    };
+  }
+  if (historyModal) {
+    historyModal.onclick = function(e){
+      if (e.target === historyModal) historyModal.classList.remove('open');
+    };
+  }
+  if (clearHistoryBtn) {
+    var clearArmed = false, clearArmTimer = null;
+    var clearHistoryLabel = clearHistoryBtn.textContent;
+    clearHistoryBtn.onclick = function(){
+      playBtnClick();
+      if (!clearArmed) {
+        clearArmed = true;
+        clearHistoryBtn.textContent = 'Click again to confirm';
+        clearHistoryBtn.classList.add('danger');
+        clearArmTimer = setTimeout(function(){
+          clearArmed = false;
+          clearHistoryBtn.textContent = clearHistoryLabel;
+          clearHistoryBtn.classList.remove('danger');
+        }, 3000);
+        return;
+      }
+      clearTimeout(clearArmTimer);
+      clearArmed = false;
+      clearHistoryBtn.textContent = clearHistoryLabel;
+      clearHistoryBtn.classList.remove('danger');
+      localStorage.removeItem('sprawl_history');
+      localStorage.removeItem('sprawl_engine_memory');
+      localStorage.removeItem('sprawl_rating');
+      rating = RATING_DEFAULT;
+      updateRatingBadge();
+      renderHistory();
+      showToast('Local history, rating, and engine memory cleared.');
+    };
+  }
+
+  /* ---------- Game Review ----------
+     Reconstructs S from a saved move sequence (never through place()/
+     grow(), which have live-only side effects: sound, confetti, network
+     send, undo-stack push) and reuses the live board renderer and
+     Analysis panel against it — see the `reviewing` checks threaded
+     through draw()/step()/perspective()/runAnalysis() above. */
+  function reviewCellsAt(step){
+    var cells = fresh().cells;
+    for (var i = 0; i < step; i++) {
+      var mv = reviewGame.moves[i];
+      cells[mv.place] = mv.turn;
+      if (mv.grow) cells[mv.grow] = null;
+    }
+    return cells;
+  }
+
+  function renderReviewStep(){
+    reqSeq++; // invalidate any in-flight live-analysis search from a previous step
+    var moves = reviewGame.moves;
+    S = fresh();
+    S.cells = reviewCellsAt(reviewStep);
+    if (reviewStep < moves.length) {
+      S.turn = moves[reviewStep].turn;
+      S.over = false;
+      S.line = [];
+    } else {
+      var last = moves[moves.length - 1];
+      S.turn = last.turn;
+      S.line = lineAt(S.cells, last.place, last.turn) || [];
+      S.over = true;
+    }
+    S.phase = 'place';
+    justAdded = null;
+    lastPlacedMark = reviewStep > 0 ? { key: moves[reviewStep - 1].place, turn: moves[reviewStep - 1].turn } : null;
+    lastGrownSquare = reviewStep > 0 ? moves[reviewStep - 1].grow : null;
+    hintMove = null;
+
+    if (reviewStepLabel) reviewStepLabel.textContent = reviewStep + ' / ' + moves.length;
+    if (reviewStartBtn) reviewStartBtn.disabled = reviewStep === 0;
+    if (reviewPrevBtn) reviewPrevBtn.disabled = reviewStep === 0;
+    if (reviewNextBtn) reviewNextBtn.disabled = reviewStep === moves.length;
+    if (reviewEndBtn) reviewEndBtn.disabled = reviewStep === moves.length;
+
+    needAna = true;
+    draw();
+    renderReviewMoveList();
+  }
+
+  /* Move i's quality tag needs both the position before it and the
+     position after it evaluated (from each side's own perspective) —
+     exactly the same delta/threshold logic addLog() already uses for
+     live play, reused here rather than reinvented. The move that ends
+     the game is always the winning move by definition, so it's tagged
+     directly without needing a search. */
+  function reviewMoveTag(i){
+    var moves = reviewGame.moves;
+    if (i === moves.length - 1) return { tag: 'Win', cls: 'tag-best' };
+    if (reviewEvalCache[i] === undefined || reviewEvalCache[i + 1] === undefined) return null;
+    var delta = reviewEvalCache[i] + reviewEvalCache[i + 1];
+    if (delta > 1e5) delta = 1e5;
+    if (delta >= 500) return { tag: 'Blunder', cls: 'tag-blunder' };
+    if (delta >= 200) return { tag: 'Mistake', cls: 'tag-mistake' };
+    if (delta >= 90) return { tag: 'Inaccuracy', cls: 'tag-inaccuracy' };
+    if (delta <= 15) return { tag: 'Best', cls: 'tag-best' };
+    return { tag: 'Good', cls: '' };
+  }
+
+  function renderReviewMoveList(){
+    if (!reviewMoveList || !reviewGame) return;
+    reviewMoveList.innerHTML = '';
+    var moves = reviewGame.moves;
+    for (var i = 0; i < moves.length; i++) {
+      var mv = moves[i], t = reviewMoveTag(i);
+      var li = document.createElement('li');
+      li.className = 'review-move-item' + (i + 1 === reviewStep ? ' current' : '') + (t ? ' ' + t.cls : '');
+      li.textContent = (i + 1) + '. ' + mv.turn + ' ' + sq(mv.place) + ' — ' + (t ? t.tag : '…');
+      li.onclick = (function(step){ return function(){ reviewStep = step; renderReviewStep(); }; })(i + 1);
+      reviewMoveList.appendChild(li);
+    }
+  }
+
+  function prefetchReviewEvals(){
+    var seq = reviewEvalSeq, moves = reviewGame.moves, i = 0;
+    function next(){
+      if (seq !== reviewEvalSeq || i >= moves.length) return;
+      searchAsync(reviewCellsAt(i), moves[i].turn, 1400, 6, W.master, function(r){
+        if (seq !== reviewEvalSeq) return;
+        reviewEvalCache[i] = r.score;
+        renderReviewMoveList();
+        i++;
+        next();
+      });
+    }
+    next();
+  }
+
+  function enterReview(game){
+    if (!game || !game.moves || !game.moves.length) return;
+    if (mode === 'online' && onlineConnected) {
+      showToast('Finish or leave your current online game before reviewing past games.');
+      return;
+    }
+    if (historyModal) historyModal.classList.remove('open');
+    hideVictoryModal();
+    reviewing = true;
+    reviewGame = game;
+    reviewStep = game.moves.length;
+    reviewEvalCache = {};
+    reviewEvalSeq++;
+
+    if (primaryToolbar) primaryToolbar.hidden = true;
+    if (diffRow) diffRow.hidden = true;
+    if (onlineRow) onlineRow.hidden = true;
+    if (reviewRow) reviewRow.hidden = false;
+    anaOn = true;
+    if (anaBtn) anaBtn.setAttribute('aria-pressed', 'true');
+    if (panel) panel.hidden = false;
+
+    renderReviewStep();
+    prefetchReviewEvals();
+  }
+
+  function exitReview(){
+    reviewing = false;
+    reviewGame = null;
+    reviewEvalSeq++;
+    reviewEvalCache = {};
+    if (reviewRow) reviewRow.hidden = true;
+    if (primaryToolbar) primaryToolbar.hidden = false;
+    if (diffRow) diffRow.hidden = oppType !== 'bot';
+    if (onlineRow) onlineRow.hidden = oppType !== 'online';
+    reset(false);
+  }
+
+  if (reviewStartBtn) reviewStartBtn.onclick = function(){ playBtnClick(); reviewStep = 0; renderReviewStep(); };
+  if (reviewPrevBtn) reviewPrevBtn.onclick = function(){ playBtnClick(); if (reviewStep > 0) { reviewStep--; renderReviewStep(); } };
+  if (reviewNextBtn) reviewNextBtn.onclick = function(){ playBtnClick(); if (reviewGame && reviewStep < reviewGame.moves.length) { reviewStep++; renderReviewStep(); } };
+  if (reviewEndBtn) reviewEndBtn.onclick = function(){ playBtnClick(); if (reviewGame) { reviewStep = reviewGame.moves.length; renderReviewStep(); } };
+  if (reviewExitBtn) reviewExitBtn.onclick = function(){ playBtnClick(); exitReview(); };
+
   /* ---------- Rules Modal ---------- */
   if (rulesBtn) {
     rulesBtn.onclick = function(){
@@ -294,7 +624,7 @@
   function showVictoryModal(winner){
     if (!victoryModal) return;
     var winnerName = winner === 'X' ? (nameX ? nameX.textContent : 'Player 1') : (nameO ? nameO.textContent : 'Player 2');
-    if (victoryTitle) victoryTitle.textContent = winnerName + ' Wins!';
+    if (victoryTitle) victoryTitle.textContent = winnerName + (winnerName === 'You' ? ' Win!' : ' Wins!');
     if (victorySubtitle) victorySubtitle.textContent = 'Aligned three ' + winner + ' marks in a row to capture the match!';
     setTimeout(function(){
       victoryModal.classList.add('open');
@@ -432,9 +762,11 @@
     if (w) {
       S.line = w;
       S.over = true;
+      moveLog.push({ turn: pending.mover, place: pending.place, grow: null });
       if (!hasAwardedWin) {
         hasAwardedWin = true;
         scores[S.turn] = (scores[S.turn] || 0) + 1;
+        recordGameResult(S.turn);
         playWinSfx();
         triggerConfetti();
         showVictoryModal(S.turn);
@@ -468,6 +800,7 @@
     if (pending) {
       pending.grow = key;
       lastPlayed = pending;
+      moveLog.push({ turn: lastPlayed.mover, place: lastPlayed.place, grow: lastPlayed.grow });
       pending = null;
     }
     justAdded = key;
@@ -497,9 +830,11 @@
     if (w) {
       S.line = w;
       S.over = true;
+      moveLog.push({ turn: pending.mover, place: pending.place, grow: null });
       if (!hasAwardedWin) {
         hasAwardedWin = true;
         scores[botTurn] = (scores[botTurn] || 0) + 1;
+        recordGameResult(botTurn);
         playWinSfx();
         triggerConfetti();
         showVictoryModal(botTurn);
@@ -517,6 +852,7 @@
     var validGrow = (growKey && !(growKey in S.cells)) ? growKey : growCands(S.cells)[0];
     pending.grow = validGrow;
     lastPlayed = pending;
+    moveLog.push({ turn: lastPlayed.mover, place: lastPlayed.place, grow: lastPlayed.grow });
     pending = null;
 
     S.cells[validGrow] = null;
@@ -534,17 +870,18 @@
   }
 
   function step(){
-    if (!BOT_MODES[mode] || S.over || S.turn === humanColor) return;
+    if (reviewing || !BOT_MODES[mode] || S.over || S.turn === humanColor) return;
     setTimeout(function(){
       if (!BOT_MODES[mode] || S.over || S.turn === humanColor) return;
       var seq = reqSeq, w = W[mode] || W.hard;
       var doSearch = w.parallel ? searchParallel : searchAsync;
       doSearch(S.cells, S.turn, w.ms, w.depth, w, function(r){
         if (seq !== reqSeq || !BOT_MODES[mode] || S.over || S.turn === humanColor || S.phase !== 'place') return;
+        if (r.hash && r.best) botMoveLog.push({ hash: r.hash, p: r.best.p, g: r.best.g });
         var p = r.best ? r.best.p : opens(S.cells)[0];
         var g = r.best ? r.best.g : slots(S.cells)[0];
         botPlayTurn(p, g);
-      });
+      }, loadEngineMemory());
     }, 280);
   }
 
@@ -569,7 +906,8 @@
     var tx = showTh ? threatCells(S.cells, 'X') : [];
     var to = showTh ? threatCells(S.cells, 'O') : [];
     var human;
-    if (mode === 'online') human = onlineConnected && S.turn === myColor;
+    if (reviewing) human = true;
+    else if (mode === 'online') human = onlineConnected && S.turn === myColor;
     else if (BOT_MODES[mode]) human = S.turn === humanColor;
     else human = true;
 
@@ -580,7 +918,7 @@
         var kk = k(x, y), el;
         if (kk in S.cells) {
           var m = S.cells[kk];
-          if (m === null && !S.over && S.phase === 'place' && human) {
+          if (m === null && !S.over && S.phase === 'place' && human && !reviewing) {
             el = document.createElement('button');
             el.className = 'sq open';
             el.type = 'button';
@@ -614,7 +952,7 @@
           if (anaOn && hintMove && human && S.phase === 'place' && !S.over && kk === hintMove.p) {
             el.classList.add('hintsq');
           }
-        } else if (showSlots && cand.indexOf(kk) > -1 && human) {
+        } else if (showSlots && cand.indexOf(kk) > -1 && human && !reviewing) {
           el = document.createElement('button');
           el.className = 'sq slot';
           el.type = 'button';
@@ -658,7 +996,13 @@
         playerCardO.classList.toggle('active-turn', S.turn === 'O');
       }
 
-      if (mode === 'human') {
+      if (reviewing && reviewGame) {
+        var revOppName = reviewGame.mode === 'online' ? 'Opponent' : ('Bot (' + reviewGame.oppLabel + ')');
+        nameX.textContent = reviewGame.myColor === 'X' ? 'You' : revOppName;
+        nameO.textContent = reviewGame.myColor === 'O' ? 'You' : revOppName;
+        roleX.textContent = 'Review';
+        roleO.textContent = 'Review';
+      } else if (mode === 'human') {
         nameX.textContent = 'Player 1';
         nameO.textContent = 'Player 2';
         roleX.textContent = 'Local (X)';
@@ -688,7 +1032,10 @@
     }
 
     /* Status Messages */
-    if (S.over) {
+    if (reviewing) {
+      whoText.textContent = 'Reviewing move ' + reviewStep + ' of ' + reviewGame.moves.length;
+      hint.textContent = reviewStep === 0 ? 'Start of game' : (S.over ? (S.turn + ' won this game') : 'Step through with the controls below');
+    } else if (S.over) {
       whoText.textContent = S.turn + ' Wins the Match!';
       hint.textContent = 'Three in a row aligned! Click "New Game" to play again.';
     } else if (BOT_MODES[mode] && S.turn !== humanColor) {
@@ -705,7 +1052,7 @@
       hint.textContent = S.phase === 'place' ? 'Tap any open square to place your mark' : 'Now grow the board: tap an edge target (+)';
     }
 
-    undoBtn.disabled = history.length === 0 || mode === 'online';
+    undoBtn.disabled = reviewing || history.length === 0 || mode === 'online';
 
     if (anaOn && !S.over && S.phase === 'place' && needAna) {
       needAna = false;
@@ -717,7 +1064,19 @@
   /* ---------- Engine Analysis Logic ---------- */
   var anaOn = false, needAna = false, anaTimer = null, hintMove = null, prevEval = null, lastPlayed = null, pending = null, logRows = [];
 
-  function sq(t){ return t ? '(' + t.replace(',', ', ') + ')' : '-'; }
+  /* Online moves' cell keys originate from a remote peer (invite-link
+     partner or random-match stranger) and are validated before they ever
+     reach place()/grow() (see handleOnlineMove) — but this is a second,
+     independent layer: sq()'s output goes straight into innerHTML in a
+     few places, so escaping it here means even an unvalidated or
+     malformed key can never inject markup, regardless of whether every
+     call site upstream got the validation right. */
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function sq(t){ return t ? '(' + escapeHtml(t).replace(',', ', ') + ')' : '-'; }
   function scoreText(sPersp, persp){
     if (sPersp >= WIN) return persp + ' wins';
     if (sPersp <= -WIN) return other(persp) + ' wins';
@@ -745,7 +1104,7 @@
 
     searchAsync(S.cells, me, 1400, 6, W.master, function(r){
       if (seq !== reqSeq || !anaOn || S.over || S.phase !== 'place' || S.turn !== me) return;
-      if (prevEval && lastPlayed && lastPlayed.mover === prevEval.mover && lastPlayed.seen !== true) {
+      if (!reviewing && prevEval && lastPlayed && lastPlayed.mover === prevEval.mover && lastPlayed.seen !== true) {
         lastPlayed.seen = true;
         var mated = (prevEval.best < WIN && r.score >= WIN);
         var delta = prevEval.best + r.score;
@@ -833,6 +1192,8 @@
     logRows = [];
     hintMove = null;
     needAna = true;
+    botMoveLog = [];
+    moveLog = [];
 
     if (mode === 'online' && onlineConnected && !remote && window.SprawlOnline) {
       SprawlOnline.sendMove({ t: 'reset' });
@@ -1009,11 +1370,21 @@
     draw();
   }
 
+  /* The peer on the other end of an online game (invite-link partner or a
+     random-match stranger) is not trusted: nothing stops a modified client
+     from sending an arbitrary payload instead of a real move, or from
+     sending a real-looking move out of turn to hijack pacing/sequence.
+     Two checks before anything touches S.cells or the DOM: the move must
+     be legal against the current shared board, AND it must actually be
+     the sender's turn (S.turn is always the mark whose full turn — place
+     then grow — is in progress; a peer only ever gets to act when it's
+     the color that isn't ours). Anything else is dropped, never applied. */
   function handleOnlineMove(data){
-    if (!data) return;
-    if (data.t === 'reset') startOnlineGame();
-    else if (data.t === 'place') place(data.k, true);
-    else if (data.t === 'grow') grow(data.k, true);
+    if (!data || typeof data.k !== 'string') return;
+    if (data.t === 'reset') { startOnlineGame(); return; }
+    if (mode === 'online' && myColor && S.turn !== other(myColor)) return;
+    if (data.t === 'place') { if (legalPlacement(S.cells, data.k)) place(data.k, true); }
+    else if (data.t === 'grow') { if (legalGrowth(S.cells, data.k)) grow(data.k, true); }
   }
 
   if (window.SprawlOnline) {

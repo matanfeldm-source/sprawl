@@ -229,12 +229,29 @@
      No transposition table either — see the note above this one and
      "Bugs worth not reintroducing" in the README for why. */
   var stop=0,abort=false,nodes=0,WINV=1e6;
+  /* At a leaf (depth<=0), genTurn()'s only-ever-used output is whether the
+     mover has an immediate win (mv[0].win) — the rest of its result (every
+     placement x growOptions() combo, the expensive part of genTurn, run
+     once per placement candidate) was being built and then discarded
+     unused every single time, since nega() falls straight through to
+     evalIdx() right after. Leaves vastly outnumber internal nodes in an
+     exponential tree, so this ran the expensive part of genTurn() at
+     nearly every node visited for nothing. genTurn() itself already
+     determines mine.length (an immediate win) in its first two lines,
+     before the expensive per-placement growOptions loop — hasWin() is
+     exactly that same prefix, reusing the same threatList()/openList()
+     genTurn already trusts, just not followed by the part whose result
+     would go unused here. This changes what work happens, never what
+     value is returned: it is the same win-check genTurn already computed
+     internally, read out before the parts of its result a leaf never
+     touches. (2026-09-07 — see README's "Leaf-node genTurn() waste".) */
+  function hasWin(me){return threatList(me,openList()).length>0;}
   function nega(me,depth,alpha,beta,w,cap){
     if((nodes&255)===0&&Date.now()>stop){abort=true;return 0;}
     nodes++;
+    if(depth<=0)return hasWin(me)?WINV+depth:evalIdx(me,w);
     var mv=genTurn(me,cap);
     if(mv.length&&mv[0].win)return WINV+depth;
-    if(depth<=0)return evalIdx(me,w);
     var best=-Infinity;
     for(var i=0;i<mv.length;i++){
       setC(mv[i].p,me);setC(mv[i].g,1);CL[CN++]=mv[i].g;
@@ -265,11 +282,12 @@
     return {m:bm,v:bv};
   }
   function copyCells(src){var d={};for(var i in src)d[i]=src[i];return d;}
-  function search(cells,meStr,ms,maxd,w,part,parts){
+  function search(cells,meStr,ms,maxd,w,part,parts,mem){
     var me=meStr==='X'?2:3,cap=w.cap||12;
     load(cells);abort=false;nodes=0;stop=Date.now()+ms;
+    var posHash=HASH+'_'+HASH2;
     var root=genTurn(me,cap),score=0,reached=0,best=root[0]||null,ranked=[];
-    if(root.length&&root[0].win)return {score:WINV,best:{p:ikey(root[0].p),g:null},depth:1,nodes:0,pv:[{t:meStr,p:ikey(root[0].p),g:null,win:true}]};
+    if(root.length&&root[0].win)return {score:WINV,best:{p:ikey(root[0].p),g:null},depth:1,nodes:0,pv:[{t:meStr,p:ikey(root[0].p),g:null,win:true}],hash:posHash};
     /* Parallel root-splitting: each parallel caller (a separate Worker, so
        a fully independent copy of this module's state — no shared cache,
        nothing to get subtly wrong) searches only every `parts`-th root
@@ -277,7 +295,7 @@
        moves per depth iteration means each worker gets deeper before time
        runs out. The caller combines results across workers. */
     if(parts>1)root=root.filter(function(_,idx){return idx%parts===part;});
-    if(!root.length)return {score:-Infinity,best:null,depth:0,nodes:0,pv:[],alts:[]};
+    if(!root.length)return {score:-Infinity,best:null,depth:0,nodes:0,pv:[],alts:[],hash:posHash};
     for(var d=1;d<=maxd;d++){
       var alpha=-Infinity,list=[];
       for(var i=0;i<root.length;i++){
@@ -299,7 +317,29 @@
       var top=ranked[0].v,pool=[];
       for(var j=0;j<ranked.length;j++)if(top-ranked[j].v<=(w.jitter||0)&&Math.abs(top)<WINV)pool.push(ranked[j]);
       if(!pool.length)pool=[ranked[0]];
-      best=pool[(Math.random()*pool.length)|0].m;
+      /* Self-learning hook: when `mem` (a position+move -> {w,l} outcome
+         table, supplied by the caller and persisted outside this module —
+         see src/ui.js) is present, the pick within `pool` is weighted by
+         each candidate's historical win rate instead of uniform. This runs
+         strictly after alpha-beta is fully done and `pool` is fixed, so it
+         cannot change which moves qualify as "equally good" (that's still
+         decided by `top`/`jitter`/`WINV` above, untouched) — only which of
+         those already-equal moves gets played. With `mem` absent/empty
+         this is byte-identical to the original uniform pick. */
+      if(mem&&pool.length>1){
+        var wts=[],wsum=0;
+        for(var pk=0;pk<pool.length;pk++){
+          var mk=posHash+'_'+ikey(pool[pk].m.p)+'_'+(pool[pk].m.g>=0?ikey(pool[pk].m.g):'x');
+          var rec=mem[mk];
+          var rate=rec?(rec.w+1)/(rec.w+rec.l+2):0.5;
+          wts.push(rate);wsum+=rate;
+        }
+        var r=Math.random()*wsum,acc=0,pick=pool.length-1;
+        for(var pk2=0;pk2<pool.length;pk2++){acc+=wts[pk2];if(r<acc){pick=pk2;break;}}
+        best=pool[pick].m;
+      } else {
+        best=pool[(Math.random()*pool.length)|0].m;
+      }
     }
     var pv=[];
     if(best){
@@ -323,7 +363,7 @@
       alts.push({p:ikey(rm.p),g:rm.g>=0?ikey(rm.g):null,score:ranked[al].v});
     }
     return {score:score,best:best?{p:ikey(best.p),g:best.g>=0?ikey(best.g):null}:null,
-            depth:reached,nodes:nodes,pv:pv,alts:alts};
+            depth:reached,nodes:nodes,pv:pv,alts:alts,hash:posHash};
   }
   function growCands(cells){load(cells);var g=growOptions(2,24),o=[];for(var i=0;i<g.length;i++)o.push(ikey(g[i]));return o;}
   function turnMoves(cells,meStr,w){load(cells);return genTurn(meStr==='X'?2:3,12);}

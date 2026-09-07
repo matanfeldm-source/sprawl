@@ -337,6 +337,18 @@ body::before {
   transform: translateY(-2px);
 }
 
+.rating-badge {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--panel-sub);
+  color: var(--text-primary);
+  border: 1px solid var(--panel-border);
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    SCOREBOARD & TURN HUD
    ========================================================================== */
@@ -1020,6 +1032,10 @@ body::before {
   gap: 12px;
 }
 
+.primary-toolbar[hidden] {
+  display: none;
+}
+
 /* Segmented Control Switcher */
 .segmented-grp {
   display: inline-flex;
@@ -1475,6 +1491,161 @@ button.ctl[aria-pressed="true"]:not(.seg) {
 }
 
 /* ==========================================================================
+   GAME HISTORY MODAL
+   ========================================================================== */
+
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history-list:empty::before {
+  content: 'No recorded games yet — bot and online wins/losses will show up here.';
+  display: block;
+  padding: 18px 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--panel-sub);
+  border: 1px solid var(--panel-border);
+  font-size: 13px;
+}
+
+.history-item.reviewable {
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.history-item.reviewable:hover {
+  border-color: var(--panel-border-hover);
+}
+
+.history-item .history-result {
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.history-item.win .history-result {
+  color: var(--accent-green);
+  background: var(--accent-green-bg);
+}
+
+.history-item.loss .history-result {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.history-item .history-opp {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.history-item .history-date {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.history-item .history-delta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+#clearHistoryBtn.danger {
+  color: #ef4444;
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+/* ==========================================================================
+   GAME REVIEW BAR
+   ========================================================================== */
+
+.review-bar {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.review-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.review-controls .icon-btn {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+}
+
+.review-step-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 64px;
+  text-align: center;
+}
+
+#reviewExit {
+  margin-left: 8px;
+}
+
+.review-move-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.review-move-item {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-border);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.review-move-item:hover {
+  border-color: var(--panel-border-hover);
+}
+
+.review-move-item.current {
+  border-color: var(--x-color);
+  color: var(--text-primary);
+  background: var(--x-bg);
+}
+
+.review-move-item.tag-blunder { color: #ef4444; }
+.review-move-item.tag-mistake { color: var(--accent-amber); }
+.review-move-item.tag-inaccuracy { color: var(--accent-amber); }
+.review-move-item.tag-best { color: var(--accent-green); }
+
+/* ==========================================================================
    TOAST NOTIFICATION
    ========================================================================== */
 
@@ -1581,6 +1752,10 @@ footer {
   }
 
   .brand-badge {
+    display: none;
+  }
+
+  .rating-badge {
     display: none;
   }
 
