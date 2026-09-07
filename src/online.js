@@ -53,11 +53,17 @@
   };
   window.SprawlOnline = api;
 
-  /* ?bundle forces esm.sh to inline firebase/app + firebase/database as one
-     module graph. Without it, the two resolve to separate module instances
-     and Firebase's service registry silently breaks ("Service database is
-     not available") — confirmed by direct testing. */
-  import('https://esm.sh/trystero@0.21.2/firebase?bundle').then(function (mod) {
+  /* trystero@0.21.2's firebase strategy has a real race: it drops any
+     peer-presence signal that arrives (via 'child_added' on the room ref)
+     before the room's initial 'value' sync resolves — the exact case when
+     a joiner subscribes after the host has already announced. Confirmed
+     by direct two-peer testing: ICE candidates gathered fine on both
+     sides, but onPeerJoin never fired because the offer was silently
+     dropped. @trystero-p2p/firebase (the package's current name) fixes
+     this by queueing pending owners and flushing them after sync.
+     ?bundle still avoids the firebase/app + firebase/database
+     dual-module-instance issue from the old import. */
+  import('https://esm.sh/@trystero-p2p/firebase@0.25.4?bundle').then(function (mod) {
     var joinRoom = mod.joinRoom, selfId = mod.selfId;
     /* Trystero's firebase strategy takes the database URL as appId and
        uses it purely for WebRTC signaling (peer presence under the
@@ -72,10 +78,10 @@
       leaveRoom();
       room = joinRoom(ROOM_CFG, roomId);
       var act = room.makeAction('mv');
-      sendMv = act[0];
-      act[1](function (data) { emit(moveFns, data); });
-      room.onPeerJoin(function () { emit(statusFns, { state: 'connected', you: amHost ? 'X' : 'O' }); });
-      room.onPeerLeave(function () { emit(statusFns, { state: 'left' }); });
+      sendMv = act.send;
+      act.onMessage = function (data) { emit(moveFns, data); };
+      room.onPeerJoin = function () { emit(statusFns, { state: 'connected', you: amHost ? 'X' : 'O' }); };
+      room.onPeerLeave = function () { emit(statusFns, { state: 'left' }); };
     }
 
     api.hostLink = function () {
@@ -97,7 +103,7 @@
       paired = false;
       emit(statusFns, { state: 'searching' });
       lobby = joinRoom(ROOM_CFG, 'sprawl-lobby-v2');
-      lobby.onPeerJoin(function (otherId) {
+      lobby.onPeerJoin = function (otherId) {
         if (paired) return;
         paired = true;
         clearTimeout(searchTimer);
@@ -105,7 +111,7 @@
         var matchId = 'sprawl-match-' + [selfId, otherId].sort().join('_');
         leaveLobby();
         attach(matchId, amHost);
-      });
+      };
       searchTimer = setTimeout(function () {
         if (!paired) { leaveLobby(); emit(statusFns, { state: 'timeout' }); }
       }, 25000);
