@@ -783,6 +783,7 @@
     reviewEvalSeq++;
     reviewEvalCache = {};
     if (reviewRow) reviewRow.hidden = true;
+    if (reviewTagBadge) reviewTagBadge.setAttribute('hidden', '');
     if (primaryToolbar) primaryToolbar.hidden = false;
     if (diffRow) diffRow.hidden = oppType !== 'bot';
     if (onlineRow) onlineRow.hidden = oppType !== 'online';
