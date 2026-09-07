@@ -128,6 +128,14 @@
   var reviewExitBtn = document.getElementById('reviewExit');
   var reviewStepLabel = document.getElementById('reviewStepLabel');
   var reviewMoveList = document.getElementById('reviewMoveList');
+  var reviewAccXVal = document.getElementById('reviewAccXVal');
+  var reviewAccOVal = document.getElementById('reviewAccOVal');
+  var reviewAccXLabel = document.getElementById('reviewAccXLabel');
+  var reviewAccOLabel = document.getElementById('reviewAccOLabel');
+  var reviewTagCounts = document.getElementById('reviewTagCounts');
+  var reviewGraph = document.getElementById('reviewGraph');
+  var reviewPlayBtn = document.getElementById('reviewPlay');
+  var reviewTagBadge = document.getElementById('reviewTagBadge');
   var victoryModal = document.getElementById('victoryModal');
   var victoryTitle = document.getElementById('victoryTitle');
   var victorySubtitle = document.getElementById('victorySubtitle');
@@ -504,9 +512,34 @@
     if (reviewNextBtn) reviewNextBtn.disabled = reviewStep === moves.length;
     if (reviewEndBtn) reviewEndBtn.disabled = reviewStep === moves.length;
 
+    renderReviewTagBadge();
+
     needAna = true;
     draw();
     renderReviewMoveList();
+    renderReviewSummary();
+    renderReviewGraph();
+  }
+
+  /* Win-probability curve (chess.com's published centipawn->win% formula,
+     reused as-is against this engine's score scale — the existing
+     Blunder/Mistake/Inaccuracy thresholds below were already tuned to
+     roughly chess-like centipawn deltas, so no rescaling is needed).
+     Saturates cleanly even at WINV-sized (1e6) forced-win scores. */
+  function winPct(score){
+    var v = Math.max(-1e6, Math.min(1e6, score));
+    return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * v)) - 1);
+  }
+  /* Per-move accuracy: how much the mover's own win% dropped by playing
+     this move instead of the engine's best. `afterOppScore` is the
+     opponent's search score at the resulting position (their own
+     perspective), so it's negated to read as the mover's perspective. */
+  function moveAccuracy(beforeScore, afterOppScore){
+    var before = winPct(beforeScore), after = winPct(-afterOppScore);
+    var drop = before - after;
+    if (drop <= 0) return 100;
+    var acc = 103.1668 * Math.exp(-0.04354 * drop) - 3.1669;
+    return Math.max(0, Math.min(100, acc));
   }
 
   /* Move i's quality tag needs both the position before it and the
@@ -514,18 +547,48 @@
      exactly the same delta/threshold logic addLog() already uses for
      live play, reused here rather than reinvented. The move that ends
      the game is always the winning move by definition, so it's tagged
-     directly without needing a search. */
+     directly without needing a search. Beyond the original four tiers,
+     this also flags: Miss (had a large edge and threw it away), and
+     Great Move/Brilliant (the engine's clear top pick by a wide margin
+     over its next-best alternative — using the top-3 `alts` search
+     already returns, not a second search). */
   function reviewMoveTag(i){
     var moves = reviewGame.moves;
-    if (i === moves.length - 1) return { tag: 'Win', cls: 'tag-best' };
-    if (reviewEvalCache[i] === undefined || reviewEvalCache[i + 1] === undefined) return null;
-    var delta = reviewEvalCache[i] + reviewEvalCache[i + 1];
+    if (i === moves.length - 1) return { tag: 'Win', cls: 'tag-best', acc: 100 };
+    var beforeR = reviewEvalCache[i], afterR = reviewEvalCache[i + 1];
+    if (!beforeR || !afterR) return null;
+    var delta = beforeR.score + afterR.score;
     if (delta > 1e5) delta = 1e5;
-    if (delta >= 500) return { tag: 'Blunder', cls: 'tag-blunder' };
-    if (delta >= 200) return { tag: 'Mistake', cls: 'tag-mistake' };
-    if (delta >= 90) return { tag: 'Inaccuracy', cls: 'tag-inaccuracy' };
-    if (delta <= 15) return { tag: 'Best', cls: 'tag-best' };
-    return { tag: 'Good', cls: '' };
+    var acc = moveAccuracy(beforeR.score, afterR.score);
+    var hadBigEdge = beforeR.score >= 400;
+
+    if (hadBigEdge && delta >= 200) return { tag: 'Miss', cls: 'tag-blunder', acc: acc };
+    if (delta >= 500) return { tag: 'Blunder', cls: 'tag-blunder', acc: acc };
+    if (delta >= 200) return { tag: 'Mistake', cls: 'tag-mistake', acc: acc };
+    if (delta >= 90) return { tag: 'Inaccuracy', cls: 'tag-inaccuracy', acc: acc };
+
+    var alts = beforeR.alts || [];
+    var isTop = alts.length && alts[0].p === moves[i].place;
+    var gap = alts.length > 1 ? alts[0].score - alts[1].score : 0;
+    if (isTop && gap >= 300 && Math.abs(beforeR.score) < 300) {
+      return { tag: 'Brilliant', cls: 'tag-brilliant', acc: acc };
+    }
+    if (isTop && gap >= 150) return { tag: 'Great Move', cls: 'tag-great', acc: acc };
+    if (delta <= 15) return { tag: 'Best', cls: 'tag-best', acc: acc };
+    if (delta <= 40) return { tag: 'Excellent', cls: 'tag-excellent', acc: acc };
+    return { tag: 'Good', cls: '', acc: acc };
+  }
+
+  function renderReviewTagBadge(){
+    if (!reviewTagBadge || !reviewGame) return;
+    var curTag = reviewStep > 0 ? reviewMoveTag(reviewStep - 1) : null;
+    if (curTag) {
+      reviewTagBadge.className = 'quality-badge ' + curTag.cls;
+      reviewTagBadge.innerHTML = '<span>' + curTag.tag + '</span>';
+      reviewTagBadge.removeAttribute('hidden');
+    } else {
+      reviewTagBadge.setAttribute('hidden', '');
+    }
   }
 
   function renderReviewMoveList(){
@@ -537,8 +600,135 @@
       var li = document.createElement('li');
       li.className = 'review-move-item' + (i + 1 === reviewStep ? ' current' : '') + (t ? ' ' + t.cls : '');
       li.textContent = (i + 1) + '. ' + mv.turn + ' ' + sq(mv.place) + ' — ' + (t ? t.tag : '…');
-      li.onclick = (function(step){ return function(){ reviewStep = step; renderReviewStep(); }; })(i + 1);
+      li.onclick = (function(step){ return function(){ reviewStep = step; stopReviewPlay(); renderReviewStep(); }; })(i + 1);
       reviewMoveList.appendChild(li);
+    }
+  }
+
+  var TAG_ORDER = ['Brilliant', 'Great Move', 'Best', 'Excellent', 'Good', 'Inaccuracy', 'Mistake', 'Miss', 'Blunder'];
+  var TAG_SLUG = { 'Brilliant': 'brilliant', 'Great Move': 'great', 'Best': 'best', 'Excellent': 'excellent',
+    'Good': 'good', 'Inaccuracy': 'inaccuracy', 'Mistake': 'mistake', 'Miss': 'miss', 'Blunder': 'blunder' };
+
+  /* "You" for the reviewer's own color, the actual opponent name otherwise
+     — reused from the same {mode, oppLabel, myColor} shape recordGameResult()
+     already saves into history, rather than showing bare X/O letters. */
+  function reviewSideLabel(color){
+    if (!reviewGame) return color;
+    if (reviewGame.myColor === color) return 'You';
+    return reviewGame.mode === 'bot' ? (reviewGame.oppLabel || 'Bot') : 'Opponent';
+  }
+
+  function renderReviewSummary(){
+    if (!reviewGame) return;
+    var moves = reviewGame.moves;
+    var accSum = { X: 0, O: 0 }, accN = { X: 0, O: 0 };
+    var tagN = { X: {}, O: {} };
+    for (var i = 0; i < moves.length; i++) {
+      var t = reviewMoveTag(i);
+      if (!t) continue;
+      var side = moves[i].turn;
+      accSum[side] += t.acc;
+      accN[side]++;
+      tagN[side][t.tag] = (tagN[side][t.tag] || 0) + 1;
+    }
+    if (reviewAccXLabel) reviewAccXLabel.textContent = reviewSideLabel('X');
+    if (reviewAccOLabel) reviewAccOLabel.textContent = reviewSideLabel('O');
+    if (reviewAccXVal) reviewAccXVal.textContent = accN.X ? (accSum.X / accN.X).toFixed(1) + '%' : '–';
+    if (reviewAccOVal) reviewAccOVal.textContent = accN.O ? (accSum.O / accN.O).toFixed(1) + '%' : '–';
+
+    if (reviewTagCounts) {
+      reviewTagCounts.innerHTML = '';
+      for (var j = 0; j < TAG_ORDER.length; j++) {
+        var tag = TAG_ORDER[j];
+        var cx = tagN.X[tag] || 0, co = tagN.O[tag] || 0;
+        if (!cx && !co) continue;
+        var li = document.createElement('li');
+        li.className = 'tc-' + TAG_SLUG[tag];
+        li.textContent = tag + ': ';
+        var span = document.createElement('span');
+        span.className = 'n';
+        span.textContent = 'X ' + cx + ' · O ' + co;
+        li.appendChild(span);
+        reviewTagCounts.appendChild(li);
+      }
+    }
+  }
+
+  /* A small win%-over-time chart, always drawn from X's perspective (O's
+     scores are negated) so the fill sits consistently above/below the
+     50% midline. Each vertex is a real SVG element so clicks map straight
+     to a review step without separate hit-testing math. */
+  function renderReviewGraph(){
+    if (!reviewGraph || !reviewGame) return;
+    var moves = reviewGame.moves, n = moves.length;
+    var pts = [];
+    for (var i = 0; i <= n; i++) {
+      var r = reviewEvalCache[i];
+      var pct;
+      if (i < n && r) {
+        pct = moves[i].turn === 'X' ? winPct(r.score) : 100 - winPct(r.score);
+      } else if (i === n) {
+        var lastTurn = moves[n - 1].turn;
+        pct = lastTurn === 'X' ? 100 : 0;
+      } else {
+        pct = null;
+      }
+      pts.push(pct);
+    }
+    reviewGraph.innerHTML = '';
+    var NS = 'http://www.w3.org/2000/svg';
+    var W_ = 100, H_ = 36;
+    function xAt(i){ return n ? (i / n) * W_ : 0; }
+    function yAt(pct){ return H_ - (pct / 100) * H_; }
+
+    var mid = document.createElementNS(NS, 'line');
+    mid.setAttribute('class', 'rg-mid');
+    mid.setAttribute('x1', 0); mid.setAttribute('x2', W_);
+    mid.setAttribute('y1', H_ / 2); mid.setAttribute('y2', H_ / 2);
+    reviewGraph.appendChild(mid);
+
+    var known = [];
+    for (var k = 0; k < pts.length; k++) if (pts[k] != null) known.push(k);
+    if (known.length > 1) {
+      var linePts = known.map(function(k2){ return xAt(k2) + ',' + yAt(pts[k2]); }).join(' ');
+      var fillTop = known.map(function(k2){ return xAt(k2) + ',' + yAt(Math.max(50, pts[k2])); }).join(' ');
+      var fillBot = known.slice().reverse().map(function(k2){ return xAt(k2) + ',' + Math.min(H_, yAt(50)); }).join(' ');
+      var polyX = document.createElementNS(NS, 'polygon');
+      polyX.setAttribute('class', 'rg-fill-x');
+      polyX.setAttribute('points', fillTop + ' ' + fillBot);
+      reviewGraph.appendChild(polyX);
+
+      var fillTopO = known.map(function(k2){ return xAt(k2) + ',' + yAt(50); }).join(' ');
+      var fillBotO = known.slice().reverse().map(function(k2){ return xAt(k2) + ',' + yAt(Math.min(50, pts[k2])); }).join(' ');
+      var polyO = document.createElementNS(NS, 'polygon');
+      polyO.setAttribute('class', 'rg-fill-o');
+      polyO.setAttribute('points', fillTopO + ' ' + fillBotO);
+      reviewGraph.appendChild(polyO);
+
+      var line = document.createElementNS(NS, 'polyline');
+      line.setAttribute('class', 'rg-line');
+      line.setAttribute('points', linePts);
+      reviewGraph.appendChild(line);
+    }
+
+    if (reviewStep >= 0 && reviewStep <= n) {
+      var cursor = document.createElementNS(NS, 'line');
+      cursor.setAttribute('class', 'rg-cursor');
+      cursor.setAttribute('x1', xAt(reviewStep)); cursor.setAttribute('x2', xAt(reviewStep));
+      cursor.setAttribute('y1', 0); cursor.setAttribute('y2', H_);
+      reviewGraph.appendChild(cursor);
+    }
+
+    for (var h = 0; h <= n; h++) {
+      var hit = document.createElementNS(NS, 'rect');
+      hit.setAttribute('class', 'rg-hit');
+      var slotW = n ? W_ / n : W_;
+      hit.setAttribute('x', xAt(h) - slotW / 2);
+      hit.setAttribute('y', 0);
+      hit.setAttribute('width', slotW);
+      hit.setAttribute('height', H_);
+      hit.onclick = (function(step){ return function(){ reviewStep = step; stopReviewPlay(); renderReviewStep(); }; })(h);
+      reviewGraph.appendChild(hit);
     }
   }
 
@@ -548,8 +738,11 @@
       if (seq !== reviewEvalSeq || i >= moves.length) return;
       searchAsync(reviewCellsAt(i), moves[i].turn, 1400, 6, W.master, function(r){
         if (seq !== reviewEvalSeq) return;
-        reviewEvalCache[i] = r.score;
+        reviewEvalCache[i] = r;
         renderReviewMoveList();
+        renderReviewSummary();
+        renderReviewGraph();
+        renderReviewTagBadge();
         i++;
         next();
       });
@@ -584,6 +777,7 @@
   }
 
   function exitReview(){
+    stopReviewPlay();
     reviewing = false;
     reviewGame = null;
     reviewEvalSeq++;
@@ -595,11 +789,28 @@
     reset(false);
   }
 
-  if (reviewStartBtn) reviewStartBtn.onclick = function(){ playBtnClick(); reviewStep = 0; renderReviewStep(); };
-  if (reviewPrevBtn) reviewPrevBtn.onclick = function(){ playBtnClick(); if (reviewStep > 0) { reviewStep--; renderReviewStep(); } };
-  if (reviewNextBtn) reviewNextBtn.onclick = function(){ playBtnClick(); if (reviewGame && reviewStep < reviewGame.moves.length) { reviewStep++; renderReviewStep(); } };
-  if (reviewEndBtn) reviewEndBtn.onclick = function(){ playBtnClick(); if (reviewGame) { reviewStep = reviewGame.moves.length; renderReviewStep(); } };
-  if (reviewExitBtn) reviewExitBtn.onclick = function(){ playBtnClick(); exitReview(); };
+  var reviewPlayTimer = null;
+  function stopReviewPlay(){
+    if (reviewPlayTimer) { clearInterval(reviewPlayTimer); reviewPlayTimer = null; }
+    if (reviewPlayBtn) reviewPlayBtn.textContent = '▶';
+  }
+  function toggleReviewPlay(){
+    if (reviewPlayTimer) { stopReviewPlay(); return; }
+    if (!reviewGame || reviewStep >= reviewGame.moves.length) reviewStep = 0;
+    if (reviewPlayBtn) reviewPlayBtn.textContent = '⏸';
+    reviewPlayTimer = setInterval(function(){
+      if (!reviewGame || reviewStep >= reviewGame.moves.length) { stopReviewPlay(); return; }
+      reviewStep++;
+      renderReviewStep();
+    }, 900);
+  }
+
+  if (reviewStartBtn) reviewStartBtn.onclick = function(){ playBtnClick(); stopReviewPlay(); reviewStep = 0; renderReviewStep(); };
+  if (reviewPrevBtn) reviewPrevBtn.onclick = function(){ playBtnClick(); stopReviewPlay(); if (reviewStep > 0) { reviewStep--; renderReviewStep(); } };
+  if (reviewNextBtn) reviewNextBtn.onclick = function(){ playBtnClick(); stopReviewPlay(); if (reviewGame && reviewStep < reviewGame.moves.length) { reviewStep++; renderReviewStep(); } };
+  if (reviewEndBtn) reviewEndBtn.onclick = function(){ playBtnClick(); stopReviewPlay(); if (reviewGame) { reviewStep = reviewGame.moves.length; renderReviewStep(); } };
+  if (reviewPlayBtn) reviewPlayBtn.onclick = function(){ playBtnClick(); toggleReviewPlay(); };
+  if (reviewExitBtn) reviewExitBtn.onclick = function(){ playBtnClick(); stopReviewPlay(); exitReview(); };
 
   /* ---------- Rules Modal ---------- */
   if (rulesBtn) {

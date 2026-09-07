@@ -40,6 +40,9 @@
   --accent-amber: #fbbf24;
   --accent-amber-bg: rgba(251, 191, 36, 0.12);
 
+  --accent-blue: #60a5fa;
+  --accent-teal: #2dd4bf;
+
   --cell-bg: rgba(28, 36, 62, 0.75);
   --cell-border: rgba(255, 255, 255, 0.14);
   --cell-hover-border: rgba(56, 189, 248, 0.8);
@@ -97,6 +100,9 @@
 
   --accent-amber: #d97706;
   --accent-amber-bg: rgba(217, 119, 6, 0.08);
+
+  --accent-blue: #2563eb;
+  --accent-teal: #0d9488;
 
   --cell-bg: #edf2f7;
   --cell-border: rgba(0, 0, 0, 0.14);
@@ -1582,6 +1588,116 @@ button.ctl[aria-pressed="true"]:not(.seg) {
   align-items: stretch;
 }
 
+.quality-badge {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: currentColor;
+  display: inline-flex;
+  align-items: center;
+  animation: badgeSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.quality-badge[hidden] { display: none !important; }
+
+.quality-badge span { color: var(--panel-bg-solid); }
+
+.quality-badge.tag-blunder { color: #ef4444; }
+.quality-badge.tag-mistake { color: var(--accent-amber); }
+.quality-badge.tag-inaccuracy { color: var(--accent-amber); }
+.quality-badge.tag-best { color: var(--accent-green); }
+.quality-badge.tag-excellent { color: var(--accent-green); }
+.quality-badge.tag-great { color: var(--accent-blue); }
+.quality-badge.tag-brilliant { color: var(--accent-teal); }
+
+.review-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.review-accuracy {
+  display: flex;
+  gap: 14px;
+}
+
+.review-accuracy-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.review-accuracy-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.review-accuracy-value {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+#reviewAccX .review-accuracy-value { color: var(--x-color); }
+#reviewAccO .review-accuracy-value { color: var(--o-color); }
+
+.review-tag-counts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.review-tag-counts li {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.review-tag-counts li .n { font-weight: 700; }
+.review-tag-counts li.tc-blunder .n { color: #ef4444; }
+.review-tag-counts li.tc-mistake .n { color: var(--accent-amber); }
+.review-tag-counts li.tc-inaccuracy .n { color: var(--accent-amber); }
+.review-tag-counts li.tc-miss .n { color: #ef4444; }
+.review-tag-counts li.tc-good .n { color: var(--text-secondary); }
+.review-tag-counts li.tc-excellent .n { color: var(--accent-green); }
+.review-tag-counts li.tc-best .n { color: var(--accent-green); }
+.review-tag-counts li.tc-great .n { color: var(--accent-blue); }
+.review-tag-counts li.tc-brilliant .n { color: var(--accent-teal); }
+
+.review-graph-wrap {
+  margin-bottom: 10px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-bg-solid);
+}
+
+.review-graph {
+  display: block;
+  width: 100%;
+  height: 56px;
+  cursor: pointer;
+}
+
+.review-graph .rg-fill-x { fill: var(--x-color); opacity: 0.28; }
+.review-graph .rg-fill-o { fill: var(--o-color); opacity: 0.28; }
+.review-graph .rg-line { fill: none; stroke: var(--text-secondary); stroke-width: 0.6; vector-effect: non-scaling-stroke; }
+.review-graph .rg-mid { stroke: var(--panel-border); stroke-width: 0.4; vector-effect: non-scaling-stroke; }
+.review-graph .rg-cursor { stroke: var(--text-primary); stroke-width: 0.6; vector-effect: non-scaling-stroke; opacity: 0.7; }
+.review-graph .rg-hit { fill: transparent; }
+
 .review-controls {
   display: flex;
   align-items: center;
@@ -1644,6 +1760,9 @@ button.ctl[aria-pressed="true"]:not(.seg) {
 .review-move-item.tag-mistake { color: var(--accent-amber); }
 .review-move-item.tag-inaccuracy { color: var(--accent-amber); }
 .review-move-item.tag-best { color: var(--accent-green); }
+.review-move-item.tag-excellent { color: var(--accent-green); }
+.review-move-item.tag-great { color: var(--accent-blue); }
+.review-move-item.tag-brilliant { color: var(--accent-teal); }
 
 /* ==========================================================================
    TOAST NOTIFICATION

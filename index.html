@@ -156,6 +156,7 @@
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <span class="who-text" id="whoText">X to move</span>
           <span class="last-move-badge" id="lastMoveBadge" hidden></span>
+          <span class="quality-badge" id="reviewTagBadge" hidden></span>
         </div>
         <span class="hint-text" id="hint">Tap an open square to place your mark</span>
       </div>
@@ -242,9 +243,26 @@
 
       <!-- Game Review Bar -->
       <div class="sub-settings-bar review-bar" id="reviewRow" hidden>
+        <div class="review-summary" id="reviewSummary">
+          <div class="review-accuracy">
+            <div class="review-accuracy-item" id="reviewAccX">
+              <span class="review-accuracy-label" id="reviewAccXLabel">X</span>
+              <span class="review-accuracy-value" id="reviewAccXVal">–</span>
+            </div>
+            <div class="review-accuracy-item" id="reviewAccO">
+              <span class="review-accuracy-label" id="reviewAccOLabel">O</span>
+              <span class="review-accuracy-value" id="reviewAccOVal">–</span>
+            </div>
+          </div>
+          <ul class="review-tag-counts" id="reviewTagCounts"></ul>
+        </div>
+        <div class="review-graph-wrap">
+          <svg class="review-graph" id="reviewGraph" viewBox="0 0 100 36" preserveAspectRatio="none"></svg>
+        </div>
         <div class="review-controls">
           <button class="ctl icon-btn" id="reviewStart" type="button" title="Jump to start">⏮</button>
           <button class="ctl icon-btn" id="reviewPrev" type="button" title="Previous move">◀</button>
+          <button class="ctl icon-btn" id="reviewPlay" type="button" title="Play through">▶</button>
           <span class="review-step-label" id="reviewStepLabel">0 / 0</span>
           <button class="ctl icon-btn" id="reviewNext" type="button" title="Next move">▶</button>
           <button class="ctl icon-btn" id="reviewEnd" type="button" title="Jump to end">⏭</button>
