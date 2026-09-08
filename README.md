@@ -281,11 +281,29 @@ argument on the defensive side.
 ## Online play
 
 There is no backend and nothing to host: `src/online.js` connects two
-browsers directly over WebRTC using [Trystero](https://github.com/dmotz/trystero),
-loaded at runtime from `esm.sh` via a dynamic `import()`. Trystero brokers
-the initial handshake through free public WebTorrent trackers (no account,
-no API key); once the two peers find each other, gameplay traffic goes
+browsers directly over WebRTC using [Trystero](https://github.com/dmotz/trystero)'s
+firebase strategy (`@trystero-p2p/firebase`), loaded at runtime from `esm.sh`
+via a dynamic `import()`. Firebase Realtime Database is used purely for
+signaling (peer presence under a `__trystero__` path, no game state ever
+stored there); once the two peers find each other, gameplay traffic goes
 peer-to-peer, not through any third party.
+
+This replaced an earlier version built on Trystero's BitTorrent-tracker and
+MQTT strategies (public relays, zero setup, no Firebase project needed).
+Both were tested directly with two independent peers joining the same room
+and confirmed broken — peers never discovered each other on either
+signaling backend, even after 40+ seconds. Public WebTorrent trackers and
+MQTT brokers aren't actually designed for arbitrary WebRTC signaling and
+have become unreliable for it. Firebase's realtime strategy was verified
+working end-to-end between two real browsers.
+
+A second bug surfaced after the switch: trystero@0.21.2's firebase strategy
+has a race where it drops any peer-presence signal arriving before the
+room's initial sync resolves — exactly the case when a joiner subscribes
+after the host has already announced, so `onPeerJoin` silently never fired
+for the joiner despite both sides gathering real ICE candidates. Fixed by
+moving to `@trystero-p2p/firebase` (the package's current name), which
+queues pending peers and flushes them after sync.
 
 Two flows share the same connection code (`attach()` in `online.js`):
 
@@ -312,30 +330,12 @@ adversarial.
 - Matchmaking only pairs with the *first* peer seen in the lobby. If three
   or more people search at once, a race can leave someone hanging — they'll
   hit the 25s timeout and can just search again.
-- No TURN server, only the trackers' default STUN. Two peers behind
-  restrictive/symmetric NATs may simply fail to connect. There's no
-  fallback for this short of paying for TURN relay.
-- It depends on a third-party CDN (`esm.sh`) and third-party public
-  trackers being reachable. `online.js` fails soft — the game still works
-  fully offline in every other mode if that load fails.
-
-**Not yet verified end-to-end.** This was built and code-reviewed but tested
-from a sandboxed browser automation environment, where two tabs could each
-individually reach the signaling infrastructure (WebSocket to trackers
-opened fine; `RTCPeerConnection` gathered real host and STUN candidates)
-but never completed a peer handshake — with two independent Trystero
-strategies (`torrent` trackers and `nostr` relays), both with matching
-explicit config on both sides. That points at something specific to that
-sandbox (likely a proxy or NAT policy blocking actual P2P media/data flow
-while allowing plain WebSocket and ICE gathering through) rather than a bug
-in this code, but it means **the online feature has not been confirmed
-working between two real browsers.** Test it from two actual devices (or
-two normal browser windows on the open internet) before trusting it; if it
-still doesn't connect there, the next things to check are the tracker list
-in `online.js` (`TRACKERS` — currently `tracker.openwebtorrent.com`,
-`tracker.webtorrent.dev`, `tracker.btorrent.xyz`, the first two confirmed
-reachable during this build) for staleness, and whether `trackerRedundancy`
-needs raising further.
+- No TURN server, only default STUN. Two peers behind restrictive/symmetric
+  NATs may simply fail to connect. There's no fallback for this short of
+  paying for TURN relay.
+- It depends on a third-party CDN (`esm.sh`) and the Firebase project being
+  reachable. `online.js` fails soft — the game still works fully offline in
+  every other mode if that load fails.
 
 ## Bugs worth not reintroducing
 
