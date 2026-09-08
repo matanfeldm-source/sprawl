@@ -1,0 +1,51 @@
+# Sprawl
+
+> Sprawl is a free browser strategy game that reinvents tic-tac-toe: every turn a
+> player places a mark AND expands the board by one square, so the grid keeps
+> growing throughout the match. There is no draw by exhaustion — the board never
+> fills up.
+
+Play at: https://matanfeldm-source.github.io/sprawl/
+
+## What it is
+
+- A single-page web game, no install, no signup, no account, free to play.
+- Standard tic-tac-toe (3-in-a-row wins) played on a board that grows one square
+  per turn instead of a fixed 3x3 grid.
+- The board starts as a 2x2 block of 4 empty squares. On each turn a player
+  places a mark in an existing empty square, then adds exactly one new empty
+  square edge-to-edge (not diagonally) against any existing square. This means
+  there are always exactly 4 empty squares on the board, no matter how large
+  it grows.
+- Because the board can grow indefinitely and a move is a placement *and* a
+  growth chosen together, standard fixed-board tic-tac-toe strategy and
+  solvers do not apply — a good placement paired with a careless growth still
+  loses the game.
+
+## Modes
+
+- Vs Bot: 5 difficulty tiers (Easy, Medium, Hard, Master, Grandmaster), backed
+  by an alpha-beta search engine running in a Web Worker so the UI never
+  freezes.
+- 2 Players: same-device local play.
+- Online: free-for-all quick match or friend-invite link, peer-to-peer via
+  WebRTC (Trystero), no dedicated game server.
+- Analysis panel: live position evaluation, best line, and alternative moves,
+  the same engine used by the bot.
+- Game review: post-game accuracy score and move-quality badges (chess.com-style)
+  for both players.
+
+## Technical notes for AI agents / crawlers
+
+- Fully static site (GitHub Pages), zero backend, zero build step, zero
+  runtime dependencies for the core game. Online play is the one exception:
+  it loads Trystero from a CDN for serverless WebRTC signaling.
+- Source: src/rules.js (rules), src/engine.js (search engine), src/worker.js
+  (runs the engine off the main thread), src/online.js (WebRTC online play),
+  src/ui.js (rendering/input/wiring).
+- The game state and move history live in the DOM/JS runtime; there is no
+  server-side API to query game state.
+
+## Contact / source
+
+- GitHub Pages site: https://matanfeldm-source.github.io/sprawl/

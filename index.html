@@ -15,6 +15,7 @@
 <link rel="canonical" href="https://matanfeldm-source.github.io/sprawl/">
 
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="llms.txt" href="llms.txt">
 
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Sprawl">
@@ -60,6 +61,63 @@
     "minValue": 1,
     "maxValue": 2
   }
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is Sprawl?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Sprawl is a free browser strategy game that reinvents tic-tac-toe: every turn a player places a mark AND expands the board by one square, so the grid keeps growing throughout the match."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "How do you play Sprawl?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The board starts as four empty squares in a 2x2 block. On your turn, place your mark in any empty square that already exists, then grow the board by adding one new empty square edge-to-edge against any existing square (corners don't connect). Three of your marks in a row, horizontally, vertically, or diagonally, wins. Since each turn fills one square and adds one, there are always exactly four empty squares, so the board never fills up and there is no draw by exhaustion."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is Sprawl free to play?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Sprawl is completely free to play in the browser, with no download, signup, or account required."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I play Sprawl against a bot?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Sprawl has five bot difficulty levels: Easy, Medium, Hard, Master, and Grandmaster. The bot is powered by an alpha-beta search engine that runs in a Web Worker so the page never freezes while it thinks."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I play Sprawl online against another person?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Sprawl supports online play against a random opponent (Quick Match) or a friend via a shareable invite link, using free peer-to-peer WebRTC connections with no game server required."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Sprawl have an analysis tool or engine evaluation?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Sprawl includes a live analysis panel showing the engine's position evaluation, best line, and alternative moves, plus a post-game review with an accuracy score and move-quality badges for each player, similar to chess.com's game review."
+      }
+    }
+  ]
 }
 </script>
 </head>
@@ -298,6 +356,37 @@
       </div>
     </div>
   </main>
+
+  <!-- FAQ / About Section (crawlable content, mirrors the FAQPage schema above) -->
+  <section class="faq-section" aria-labelledby="faqTitle">
+    <h2 id="faqTitle" class="faq-title">About Sprawl</h2>
+    <div class="rules-grid">
+      <div class="rule-card">
+        <h3>What is Sprawl?</h3>
+        <p>A free browser strategy game that reinvents tic-tac-toe: every turn you place a mark <em>and</em> expand the board by one square, so the grid keeps growing throughout the match.</p>
+      </div>
+      <div class="rule-card">
+        <h3>How do you play?</h3>
+        <p>Place your mark in any open square, then grow the board by one square edge-to-edge against any existing square. There are always exactly four empty squares, so the board never fills up — no draws by exhaustion.</p>
+      </div>
+      <div class="rule-card">
+        <h3>Is it free?</h3>
+        <p>Yes — no download, no signup, no account. Just open the page and play.</p>
+      </div>
+      <div class="rule-card">
+        <h3>Can I play a bot?</h3>
+        <p>Five difficulty tiers, Easy through Grandmaster, powered by an alpha-beta search engine that runs in a Web Worker so the page never freezes.</p>
+      </div>
+      <div class="rule-card">
+        <h3>Can I play online?</h3>
+        <p>Yes — quick match against a random opponent, or send a friend an invite link. Peer-to-peer WebRTC, no game server.</p>
+      </div>
+      <div class="rule-card">
+        <h3>Is there move analysis?</h3>
+        <p>A live evaluation panel with best line and alternatives, plus a post-game review with accuracy scores and move-quality badges.</p>
+      </div>
+    </div>
+  </section>
 
   <footer>
     Sprawl — Dynamic Expanding Tic-Tac-Toe &bull; Built with HTML, CSS &amp; Web Workers

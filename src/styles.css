@@ -1797,6 +1797,24 @@ button.ctl[aria-pressed="true"]:not(.seg) {
 }
 
 /* ==========================================================================
+   FAQ / ABOUT SECTION
+   ========================================================================== */
+
+.faq-section {
+  margin-top: 8px;
+}
+
+.faq-title {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* ==========================================================================
    FOOTER
    ========================================================================== */
 
